@@ -39,16 +39,13 @@ def update_github_whitelist(new_content, sha):
 
 def get_roblox_avatar(user_id):
     try:
-        user_url = f"https://api.roblox.com/users/{user_id}"
-        user_r = requests.get(user_url)
-        avatar_url = f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={user_id}&size=150x150&format=Png"
+        avatar_url = f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={user_id}&size=150x150&format=Png&isCircular=false"
         avatar_r = requests.get(avatar_url)
         avatar_data = avatar_r.json()
         if avatar_data and "data" in avatar_data and len(avatar_data["data"]) > 0:
-            return avatar_data["data"][0]["imageUrl"]
-    except:
-        pass
-    return None
+            image_url = avatar_data["data"][0]["imageUrl"]
+            if image_url and image_url.startswith("http"):
+                return image_url
 
 def parse_entry(line):
     parts = line.split("|")
