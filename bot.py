@@ -39,13 +39,28 @@ def update_github_whitelist(new_content, sha):
 
 def get_roblox_avatar(user_id):
     try:
-        avatar_url = f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={user_id}&size=150x150&format=Png&isCircular=false"
-        avatar_r = requests.get(avatar_url)
-        avatar_data = avatar_r.json()
-        if avatar_data and "data" in avatar_data and len(avatar_data["data"]) > 0:
-            image_url = avatar_data["data"][0]["imageUrl"]
+        url = f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={user_id}&size=150x150&format=Png&isCircular=false"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(url, headers=headers, timeout=5)
+        data = r.json()
+        if "data" in data and len(data["data"]) > 0:
+            image_url = data["data"][0].get("imageUrl", "")
             if image_url and image_url.startswith("http"):
                 return image_url
+    except:
+        pass
+    return None
+
+def get_roblox_username(user_id):
+    try:
+        url = f"https://users.roblox.com/v1/users/{user_id}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(url, headers=headers, timeout=5)
+        data = r.json()
+        return data.get("name", None)
+    except:
+        pass
+    return None
 
 def parse_entry(line):
     parts = line.split("|")
@@ -94,14 +109,15 @@ async def on_message(message):
             new_entry = f"{user_id} | {date}"
             new_content = content.strip() + f"\n{new_entry}"
             update_github_whitelist(new_content, sha)
+            username = get_roblox_username(user_id)
+            avatar = get_roblox_avatar(user_id)
             embed = discord.Embed(
                 title="✅ User Whitelisted",
-                description=f"**User ID:** `{user_id}`\n**Added on:** {date} UTC",
+                description=f"**User ID:** `{user_id}`\n**Username:** {username or 'Unknown'}\n**Added on:** {date} UTC",
                 color=0x00FF7F
             )
             embed.add_field(name="Total Users", value=str(len(ids) + 1), inline=True)
             embed.add_field(name="GitHub", value="✅ Updated", inline=True)
-            avatar = get_roblox_avatar(user_id)
             if avatar:
                 embed.set_thumbnail(url=avatar)
             embed.set_footer(text="Whitelist Bot • GitHub updated")
@@ -124,14 +140,15 @@ async def on_message(message):
             new_lines = [line for line in lines if not line.startswith(user_id)]
             new_content = "\n".join(new_lines)
             update_github_whitelist(new_content, sha)
+            username = get_roblox_username(user_id)
+            avatar = get_roblox_avatar(user_id)
             embed = discord.Embed(
                 title="🗑️ User Removed",
-                description=f"**User ID:** `{user_id}`\nThis user has been removed from the whitelist.",
+                description=f"**User ID:** `{user_id}`\n**Username:** {username or 'Unknown'}\nThis user has been removed.",
                 color=0xFF4500
             )
             embed.add_field(name="Total Users", value=str(len(ids) - 1), inline=True)
             embed.add_field(name="GitHub", value="✅ Updated", inline=True)
-            avatar = get_roblox_avatar(user_id)
             if avatar:
                 embed.set_thumbnail(url=avatar)
             embed.set_footer(text="Whitelist Bot • GitHub updated")
@@ -146,29 +163,25 @@ async def on_message(message):
             if line.startswith(user_id):
                 found = line
                 break
+        username = get_roblox_username(user_id)
+        avatar = get_roblox_avatar(user_id)
         if found:
             uid, date = parse_entry(found)
             embed = discord.Embed(
                 title="✅ User is Whitelisted",
-                description=f"**User ID:** `{user_id}`\n**Added on:** {date} UTC",
+                description=f"**User ID:** `{user_id}`\n**Username:** {username or 'Unknown'}\n**Added on:** {date} UTC",
                 color=0x00FF7F
             )
-            avatar = get_roblox_avatar(user_id)
-            if avatar:
-                embed.set_thumbnail(url=avatar)
-            embed.set_footer(text="Whitelist Bot")
-            embed.timestamp = datetime.utcnow()
         else:
             embed = discord.Embed(
                 title="❌ Not Whitelisted",
-                description=f"**User ID:** `{user_id}`\nThis user does not have access.",
+                description=f"**User ID:** `{user_id}`\n**Username:** {username or 'Unknown'}\nThis user does not have access.",
                 color=0xFF0000
             )
-            avatar = get_roblox_avatar(user_id)
-            if avatar:
-                embed.set_thumbnail(url=avatar)
-            embed.set_footer(text="Whitelist Bot")
-            embed.timestamp = datetime.utcnow()
+        if avatar:
+            embed.set_thumbnail(url=avatar)
+        embed.set_footer(text="Whitelist Bot")
+        embed.timestamp = datetime.utcnow()
         await message.channel.send(embed=embed)
 
     elif message.content == "!list":
