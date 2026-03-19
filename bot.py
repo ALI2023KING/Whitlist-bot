@@ -2,7 +2,7 @@ import discord
 import os
 
 TOKEN = os.environ.get("TOKEN")
-OWNER_ID = 1484151819465916476
+OWNER_ID = 1449777458218926243
 
 if not TOKEN:
     print("ERROR: No token found!")
