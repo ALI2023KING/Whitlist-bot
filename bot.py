@@ -2,6 +2,7 @@ import discord
 import os
 
 TOKEN = os.environ.get("TOKEN")
+OWNER_ID = 1484151819465916476
 
 if not TOKEN:
     print("ERROR: No token found!")
@@ -31,30 +32,81 @@ async def on_ready():
 async def on_message(message):
     if message.author == client.user:
         return
+
+    if message.author.id != OWNER_ID:
+        if message.content.startswith("!add") or message.content.startswith("!remove") or message.content.startswith("!list"):
+            embed = discord.Embed(
+                title="❌ No Permission",
+                description="Only the owner can use these commands.",
+                color=discord.Color.red()
+            )
+            await message.channel.send(embed=embed)
+            return
+
     if message.content.startswith("!add "):
         user_id = message.content.split(" ")[1].strip()
         ids = read_whitelist()
         if user_id in ids:
-            await message.channel.send(f"❌ {user_id} is already whitelisted")
+            embed = discord.Embed(
+                title="⚠️ Already Whitelisted",
+                description=f"`{user_id}` is already in the whitelist.",
+                color=discord.Color.yellow()
+            )
         else:
             ids.append(user_id)
             write_whitelist(ids)
-            await message.channel.send(f"✅ Added {user_id}")
+            embed = discord.Embed(
+                title="✅ Added",
+                description=f"`{user_id}` has been added to the whitelist.",
+                color=discord.Color.green()
+            )
+        await message.channel.send(embed=embed)
+
     elif message.content.startswith("!remove "):
         user_id = message.content.split(" ")[1].strip()
         ids = read_whitelist()
         if user_id not in ids:
-            await message.channel.send(f"❌ {user_id} not found")
+            embed = discord.Embed(
+                title="❌ Not Found",
+                description=f"`{user_id}` is not in the whitelist.",
+                color=discord.Color.red()
+            )
         else:
             ids.remove(user_id)
             write_whitelist(ids)
-            await message.channel.send(f"✅ Removed {user_id}")
+            embed = discord.Embed(
+                title="🗑️ Removed",
+                description=f"`{user_id}` has been removed from the whitelist.",
+                color=discord.Color.red()
+            )
+        await message.channel.send(embed=embed)
+
     elif message.content == "!list":
         ids = read_whitelist()
         if not ids:
-            await message.channel.send("Whitelist is empty")
+            embed = discord.Embed(
+                title="📋 Whitelist",
+                description="The whitelist is empty.",
+                color=discord.Color.blue()
+            )
         else:
-            await message.channel.send("**Whitelisted IDs:**\n" + "\n".join(ids))
+            embed = discord.Embed(
+                title="📋 Whitelist",
+                description="\n".join([f"`{id}`" for id in ids]),
+                color=discord.Color.blue()
+            )
+            embed.set_footer(text=f"Total: {len(ids)} users")
+        await message.channel.send(embed=embed)
+
+    elif message.content == "!help":
+        embed = discord.Embed(
+            title="📖 Commands",
+            color=discord.Color.purple()
+        )
+        embed.add_field(name="!add [ID]", value="Add a user to whitelist", inline=False)
+        embed.add_field(name="!remove [ID]", value="Remove a user from whitelist", inline=False)
+        embed.add_field(name="!list", value="Show all whitelisted users", inline=False)
+        await message.channel.send(embed=embed)
 
 print("Starting bot...")
 client.run(TOKEN)
