@@ -3,6 +3,10 @@ import os
 
 TOKEN = os.environ.get("TOKEN")
 
+if not TOKEN:
+    print("ERROR: No token found!")
+    exit(1)
+
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
@@ -27,7 +31,6 @@ async def on_ready():
 async def on_message(message):
     if message.author == client.user:
         return
-
     if message.content.startswith("!add "):
         user_id = message.content.split(" ")[1].strip()
         ids = read_whitelist()
@@ -37,7 +40,6 @@ async def on_message(message):
             ids.append(user_id)
             write_whitelist(ids)
             await message.channel.send(f"✅ Added {user_id}")
-
     elif message.content.startswith("!remove "):
         user_id = message.content.split(" ")[1].strip()
         ids = read_whitelist()
@@ -47,10 +49,12 @@ async def on_message(message):
             ids.remove(user_id)
             write_whitelist(ids)
             await message.channel.send(f"✅ Removed {user_id}")
-
     elif message.content == "!list":
         ids = read_whitelist()
         if not ids:
             await message.channel.send("Whitelist is empty")
         else:
             await message.channel.send("**Whitelisted IDs:**\n" + "\n".join(ids))
+
+print("Starting bot...")
+client.run(TOKEN)
