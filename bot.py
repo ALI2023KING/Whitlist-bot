@@ -6,7 +6,7 @@ import json
 
 TOKEN = os.environ.get("TOKEN")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-OWNER_ID = 1484151819465916476
+OWNER_ID = 1449777458218926243
 
 GITHUB_REPO = "ALI2023KING/Whitlist-sys"
 GITHUB_FILE = "whitelist.txt"
