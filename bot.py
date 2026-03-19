@@ -197,6 +197,64 @@ class ConfirmView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=None)
         self.stop()
 
+class GenerateKeyView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=60)
+
+    @discord.ui.button(label="⏰ 4 Hours", style=discord.ButtonStyle.blurple)
+    async def key_4h(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._generate(interaction, hours=4, label="4 Hours")
+
+    @discord.ui.button(label="🌙 1 Day", style=discord.ButtonStyle.blurple)
+    async def key_1d(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._generate(interaction, hours=24, label="1 Day")
+
+    @discord.ui.button(label="📅 7 Days", style=discord.ButtonStyle.blurple)
+    async def key_7d(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._generate(interaction, hours=168, label="7 Days")
+
+    @discord.ui.button(label="♾️ Permanent", style=discord.ButtonStyle.green)
+    async def key_perm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._generate(interaction, hours=None, label="Permanent")
+
+    async def _generate(self, interaction: discord.Interaction, hours, label):
+        key = generate_key()
+        date = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        expiry = "never"
+        if hours:
+            expiry_dt = datetime.utcnow() + timedelta(hours=hours)
+            expiry = expiry_dt.strftime("%Y-%m-%d %H:%M")
+        key_lines, key_sha, key_content = get_github_file(KEY_FILE)
+        new_entry = f"{key} | {date} | false | 1 | {expiry} | never"
+        new_content = key_content.strip() + f"\n{new_entry}"
+        update_github_file(KEY_FILE, new_content, key_sha)
+        try:
+            dm_embed = discord.Embed(
+                title="🔑 New Key Generated",
+                color=COLORS["gold"]
+            )
+            dm_embed.add_field(name="🔑 Key", value=f"`{key}`", inline=False)
+            dm_embed.add_field(name="Duration", value=label, inline=True)
+            dm_embed.add_field(name="Expires", value=expiry if expiry != "never" else "Never", inline=True)
+            dm_embed.set_footer(text="Do not share this key publicly!")
+            dm_embed.timestamp = datetime.utcnow()
+            await interaction.user.send(embed=dm_embed)
+            confirm_embed = discord.Embed(
+                title="✅ Key Sent to DMs",
+                description=f"A **{label}** key has been sent to your DMs!",
+                color=COLORS["success"]
+            )
+            confirm_embed.timestamp = datetime.utcnow()
+            await interaction.response.edit_message(embed=confirm_embed, view=None)
+        except:
+            embed = discord.Embed(
+                title="❌ DM Failed",
+                description="Enable DMs from server members and try again.",
+                color=COLORS["error"]
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+        self.stop()
+
 class PanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -365,6 +423,25 @@ async def panel(interaction: discord.Interaction):
     embed.set_footer(text="VoidHub Whitelist • Powered by GitHub")
     embed.timestamp = datetime.utcnow()
     await interaction.response.send_message(embed=embed, view=PanelView())
+
+@tree.command(name="genkey", description="Generate a whitelist key with expiry options")
+async def gen_key(interaction: discord.Interaction):
+    if not owner_only(interaction):
+        embed = discord.Embed(title="🚫 Access Denied", color=COLORS["error"])
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    embed = discord.Embed(
+        title="🔑 Generate Key",
+        description="Select how long this key should last:",
+        color=COLORS["gold"]
+    )
+    embed.add_field(name="⏰ 4 Hours", value="Key expires in 4 hours", inline=True)
+    embed.add_field(name="🌙 1 Day", value="Key expires in 24 hours", inline=True)
+    embed.add_field(name="📅 7 Days", value="Key expires in 7 days", inline=True)
+    embed.add_field(name="♾️ Permanent", value="Key never expires", inline=True)
+    embed.set_footer(text="Key will be sent to your DMs")
+    embed.timestamp = datetime.utcnow()
+    await interaction.response.send_message(embed=embed, view=GenerateKeyView(), ephemeral=True)
 
 @tree.command(name="add", description="Add a Roblox user to the whitelist")
 @app_commands.describe(username="Roblox username", discord_user="Their Discord user", note="Note", days="Days of access")
@@ -551,7 +628,7 @@ async def unban_user(interaction: discord.Interaction, username: str):
     embed.timestamp = datetime.utcnow()
     await interaction.followup.send(embed=embed)
 
-@tree.command(name="list", description="Show all whitelisted users")
+@tree.command(name="list", description="Show all whitelisted users in one panel")
 async def list_users(interaction: discord.Interaction):
     if not owner_only(interaction):
         embed = discord.Embed(title="🚫 Access Denied", color=COLORS["error"])
@@ -562,31 +639,33 @@ async def list_users(interaction: discord.Interaction):
     ban_lines, _, _ = get_github_file(BAN_FILE)
     entries = [l for l in lines if not l.startswith("--")]
     ban_entries = [l for l in ban_lines if not l.startswith("--")]
+
+    embed = discord.Embed(
+        title="📋 WHITELIST",
+        color=COLORS["info"]
+    )
+
     if not entries:
-        embed = discord.Embed(title="📋 Whitelist", description="The whitelist is empty.", color=COLORS["info"])
-        await interaction.followup.send(embed=embed)
-        return
-    embed = discord.Embed(title="📋 Whitelist", color=COLORS["info"])
-    embed.add_field(name="✅ Whitelisted", value=str(len(entries)), inline=True)
-    embed.add_field(name="🔨 Banned", value=str(len(ban_entries)), inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
-    first_uid = None
-    desc = ""
-    for line in entries:
-        uid, date, roblox_name, discord_str, note, expiry, uses = parse_entry(line)
-        name = roblox_name if roblox_name else uid
-        discord_mention = f"<@{discord_str}>" if discord_str and discord_str != "none" else "Not set"
-        expired = is_expired(expiry)
-        status = "⚠️" if expired else "✅"
-        expiry_text = expiry if expiry and expiry != "never" else "Never"
-        desc += f"{status} **{name}** — {discord_mention} — Expires: {expiry_text}\n"
-        if not first_uid:
-            first_uid = uid
-    embed.description = desc
-    if first_uid:
-        avatar = get_roblox_avatar(first_uid)
-        if avatar:
-            embed.set_thumbnail(url=avatar)
+        embed.description = "The whitelist is currently empty."
+    else:
+        user_lines = []
+        for line in entries:
+            uid, date, roblox_name, discord_str, note, expiry, uses = parse_entry(line)
+            name = roblox_name if roblox_name else uid
+            discord_mention = f"<@{discord_str}>" if discord_str and discord_str != "none" else "No Discord"
+            expired = is_expired(expiry)
+            status = "⚠️" if expired else "✅"
+            avatar = get_roblox_avatar(uid)
+            avatar_text = f"[🖼]({avatar})" if avatar else ""
+            user_lines.append(f"{status} **{name}** {avatar_text} — {discord_mention}")
+
+        embed.description = "\n".join(user_lines)
+
+    embed.add_field(
+        name="\u200b",
+        value=f"✅ **Whitelisted:** {len(entries)}    🔨 **Banned:** {len(ban_entries)}",
+        inline=False
+    )
     embed.set_footer(text="Whitelist Bot • Powered by GitHub")
     embed.timestamp = datetime.utcnow()
     await interaction.followup.send(embed=embed)
@@ -597,51 +676,18 @@ async def clear_whitelist(interaction: discord.Interaction):
         embed = discord.Embed(title="🚫 Access Denied", color=COLORS["error"])
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
-
-    confirm_embed = discord.Embed(
-        title="⚠️ Confirm Clear",
-        description="Are you sure you want to clear the ENTIRE whitelist?",
-        color=COLORS["warning"]
-    )
+    confirm_embed = discord.Embed(title="⚠️ Confirm Clear", description="Clear the ENTIRE whitelist?", color=COLORS["warning"])
 
     async def do_clear(i: discord.Interaction):
         lines, sha, content = get_github_file(GITHUB_FILE)
         update_github_file(GITHUB_FILE, "", sha)
-        result_embed = discord.Embed(title="🧹 Whitelist Cleared", description="All users have been removed.", color=COLORS["ban"])
+        result_embed = discord.Embed(title="🧹 Whitelist Cleared", color=COLORS["ban"])
         result_embed.timestamp = datetime.utcnow()
         await i.response.edit_message(embed=result_embed, view=None)
         await send_log(result_embed)
 
     view = ConfirmView(do_clear)
     await interaction.response.send_message(embed=confirm_embed, view=view)
-
-@tree.command(name="genkey", description="Generate a whitelist key")
-@app_commands.describe(max_uses="Times key can be used", days_access="Days of access", expiry_days="Days until key expires")
-async def gen_key(interaction: discord.Interaction, max_uses: int = 1, days_access: int = None, expiry_days: int = None):
-    if not owner_only(interaction):
-        embed = discord.Embed(title="🚫 Access Denied", color=COLORS["error"])
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-    await interaction.response.defer(ephemeral=True)
-    key = generate_key()
-    date = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-    expiry = "never"
-    if expiry_days:
-        expiry_dt = datetime.utcnow() + timedelta(days=expiry_days)
-        expiry = expiry_dt.strftime("%Y-%m-%d %H:%M")
-    days_str = str(days_access) if days_access else "never"
-    key_lines, key_sha, key_content = get_github_file(KEY_FILE)
-    new_entry = f"{key} | {date} | false | {max_uses} | {expiry} | {days_str}"
-    new_content = key_content.strip() + f"\n{new_entry}"
-    update_github_file(KEY_FILE, new_content, key_sha)
-    embed = discord.Embed(title="🔑 Key Generated", color=COLORS["gold"])
-    embed.add_field(name="Key", value=f"`{key}`", inline=False)
-    embed.add_field(name="Max Uses", value=str(max_uses), inline=True)
-    embed.add_field(name="Access Duration", value=f"{days_access} days" if days_access else "Permanent", inline=True)
-    embed.add_field(name="Key Expires", value=expiry if expiry != "never" else "Never", inline=True)
-    embed.set_footer(text="Share this key carefully!")
-    embed.timestamp = datetime.utcnow()
-    await interaction.followup.send(embed=embed, ephemeral=True)
 
 @tree.command(name="keylist", description="Show all generated keys")
 async def key_list(interaction: discord.Interaction):
@@ -661,7 +707,8 @@ async def key_list(interaction: discord.Interaction):
         status = "✅ Available" if used == "false" else "❌ Used"
         if is_expired(expiry):
             status = "⚠️ Expired"
-        desc += f"`{k}` — {status} — Uses: {max_uses}\n"
+        expiry_text = expiry if expiry != "never" else "Never"
+        desc += f"`{k}` — {status} — Expires: {expiry_text}\n"
     embed = discord.Embed(title="🔑 All Keys", description=desc, color=COLORS["gold"])
     embed.add_field(name="Total", value=str(len(key_lines)), inline=True)
     embed.timestamp = datetime.utcnow()
@@ -723,7 +770,7 @@ async def set_log(interaction: discord.Interaction):
         return
     global LOG_CHANNEL_ID
     LOG_CHANNEL_ID = interaction.channel_id
-    embed = discord.Embed(title="📋 Log Channel Set", description="This channel will receive all logs.", color=COLORS["success"])
+    embed = discord.Embed(title="📋 Log Channel Set", color=COLORS["success"])
     embed.timestamp = datetime.utcnow()
     await interaction.response.send_message(embed=embed)
 
