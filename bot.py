@@ -6,7 +6,6 @@ import json
 
 TOKEN = os.environ.get("TOKEN")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-OWNER_ID = 1449777458218926243
 
 GITHUB_REPO = "ALI2023KING/Whitlist-sys"
 GITHUB_FILE = "whitelist.txt"
@@ -33,11 +32,7 @@ def update_github_whitelist(new_content, sha):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     encoded = base64.b64encode(new_content.encode("utf-8")).decode("utf-8")
-    payload = {
-        "message": "Updated whitelist",
-        "content": encoded,
-        "sha": sha
-    }
+    payload = {"message": "Updated whitelist", "content": encoded, "sha": sha}
     requests.put(url, headers=headers, data=json.dumps(payload))
 
 @client.event
@@ -49,80 +44,36 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    if message.author.id != OWNER_ID:
-        if message.content.startswith("!add") or message.content.startswith("!remove") or message.content.startswith("!list"):
-            embed = discord.Embed(
-                title="❌ No Permission",
-                description="Only the owner can use these commands.",
-                color=discord.Color.red()
-            )
-            await message.channel.send(embed=embed)
-            return
-
     if message.content.startswith("!add "):
         user_id = message.content.split(" ")[1].strip()
         ids, sha, content = get_github_whitelist()
         if user_id in ids:
-            embed = discord.Embed(
-                title="⚠️ Already Whitelisted",
-                description=f"`{user_id}` is already in the whitelist.",
-                color=discord.Color.yellow()
-            )
+            embed = discord.Embed(title="⚠️ Already Whitelisted", description=f"`{user_id}` is already in the whitelist.", color=discord.Color.yellow())
         else:
             new_content = content.strip() + f"\n{user_id}"
             update_github_whitelist(new_content, sha)
-            embed = discord.Embed(
-                title="✅ Added",
-                description=f"`{user_id}` has been added to the whitelist.",
-                color=discord.Color.green()
-            )
+            embed = discord.Embed(title="✅ Added", description=f"`{user_id}` has been added.", color=discord.Color.green())
         await message.channel.send(embed=embed)
 
     elif message.content.startswith("!remove "):
         user_id = message.content.split(" ")[1].strip()
         ids, sha, content = get_github_whitelist()
         if user_id not in ids:
-            embed = discord.Embed(
-                title="❌ Not Found",
-                description=f"`{user_id}` is not in the whitelist.",
-                color=discord.Color.red()
-            )
+            embed = discord.Embed(title="❌ Not Found", description=f"`{user_id}` is not in the whitelist.", color=discord.Color.red())
         else:
             new_lines = [line for line in content.splitlines() if line.strip() != user_id]
             new_content = "\n".join(new_lines)
             update_github_whitelist(new_content, sha)
-            embed = discord.Embed(
-                title="🗑️ Removed",
-                description=f"`{user_id}` has been removed from the whitelist.",
-                color=discord.Color.red()
-            )
+            embed = discord.Embed(title="🗑️ Removed", description=f"`{user_id}` has been removed.", color=discord.Color.red())
         await message.channel.send(embed=embed)
 
     elif message.content == "!list":
         ids, sha, content = get_github_whitelist()
         if not ids:
-            embed = discord.Embed(
-                title="📋 Whitelist",
-                description="The whitelist is empty.",
-                color=discord.Color.blue()
-            )
+            embed = discord.Embed(title="📋 Whitelist", description="The whitelist is empty.", color=discord.Color.blue())
         else:
-            embed = discord.Embed(
-                title="📋 Whitelist",
-                description="\n".join([f"`{id}`" for id in ids]),
-                color=discord.Color.blue()
-            )
+            embed = discord.Embed(title="📋 Whitelist", description="\n".join([f"`{id}`" for id in ids]), color=discord.Color.blue())
             embed.set_footer(text=f"Total: {len(ids)} users")
-        await message.channel.send(embed=embed)
-
-    elif message.content == "!help":
-        embed = discord.Embed(
-            title="📖 Commands",
-            color=discord.Color.purple()
-        )
-        embed.add_field(name="!add [ID]", value="Add a user to whitelist", inline=False)
-        embed.add_field(name="!remove [ID]", value="Remove a user from whitelist", inline=False)
-        embed.add_field(name="!list", value="Show all whitelisted users", inline=False)
         await message.channel.send(embed=embed)
 
 print("Starting bot...")
