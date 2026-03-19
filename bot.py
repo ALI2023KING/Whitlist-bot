@@ -520,4 +520,4 @@ async def help_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 print("Starting bot...")
-client.run(TOKON)
+client.run(TOKEN)
