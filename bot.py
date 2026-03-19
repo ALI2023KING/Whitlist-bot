@@ -1,8 +1,15 @@
 import discord
 import os
+import requests
+import base64
+import json
 
 TOKEN = os.environ.get("TOKEN")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 OWNER_ID = 1449777458218926243
+
+GITHUB_REPO = "ALI2023KING/Whitlist-sys"
+GITHUB_FILE = "whitelist.txt"
 
 if not TOKEN:
     print("ERROR: No token found!")
@@ -12,17 +19,26 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-WHITELIST_FILE = "whitelist.txt"
+def get_github_whitelist():
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    r = requests.get(url, headers=headers)
+    data = r.json()
+    content = base64.b64decode(data["content"]).decode("utf-8")
+    sha = data["sha"]
+    ids = [line.strip() for line in content.splitlines() if line.strip() and not line.startswith("--")]
+    return ids, sha, content
 
-def read_whitelist():
-    if not os.path.exists(WHITELIST_FILE):
-        return []
-    with open(WHITELIST_FILE, "r") as f:
-        return [line.strip() for line in f.readlines() if line.strip()]
-
-def write_whitelist(ids):
-    with open(WHITELIST_FILE, "w") as f:
-        f.write("\n".join(ids))
+def update_github_whitelist(new_content, sha):
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    encoded = base64.b64encode(new_content.encode("utf-8")).decode("utf-8")
+    payload = {
+        "message": "Updated whitelist",
+        "content": encoded,
+        "sha": sha
+    }
+    requests.put(url, headers=headers, data=json.dumps(payload))
 
 @client.event
 async def on_ready():
@@ -45,7 +61,7 @@ async def on_message(message):
 
     if message.content.startswith("!add "):
         user_id = message.content.split(" ")[1].strip()
-        ids = read_whitelist()
+        ids, sha, content = get_github_whitelist()
         if user_id in ids:
             embed = discord.Embed(
                 title="⚠️ Already Whitelisted",
@@ -53,8 +69,8 @@ async def on_message(message):
                 color=discord.Color.yellow()
             )
         else:
-            ids.append(user_id)
-            write_whitelist(ids)
+            new_content = content.strip() + f"\n{user_id}"
+            update_github_whitelist(new_content, sha)
             embed = discord.Embed(
                 title="✅ Added",
                 description=f"`{user_id}` has been added to the whitelist.",
@@ -64,7 +80,7 @@ async def on_message(message):
 
     elif message.content.startswith("!remove "):
         user_id = message.content.split(" ")[1].strip()
-        ids = read_whitelist()
+        ids, sha, content = get_github_whitelist()
         if user_id not in ids:
             embed = discord.Embed(
                 title="❌ Not Found",
@@ -72,8 +88,9 @@ async def on_message(message):
                 color=discord.Color.red()
             )
         else:
-            ids.remove(user_id)
-            write_whitelist(ids)
+            new_lines = [line for line in content.splitlines() if line.strip() != user_id]
+            new_content = "\n".join(new_lines)
+            update_github_whitelist(new_content, sha)
             embed = discord.Embed(
                 title="🗑️ Removed",
                 description=f"`{user_id}` has been removed from the whitelist.",
@@ -82,7 +99,7 @@ async def on_message(message):
         await message.channel.send(embed=embed)
 
     elif message.content == "!list":
-        ids = read_whitelist()
+        ids, sha, content = get_github_whitelist()
         if not ids:
             embed = discord.Embed(
                 title="📋 Whitelist",
