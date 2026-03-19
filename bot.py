@@ -3,6 +3,7 @@ import os
 import requests
 import base64
 import json
+from datetime import datetime
 
 TOKEN = os.environ.get("TOKEN")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
@@ -26,8 +27,8 @@ def get_github_whitelist():
     data = r.json()
     content = base64.b64decode(data["content"]).decode("utf-8")
     sha = data["sha"]
-    ids = [line.strip() for line in content.splitlines() if line.strip() and not line.startswith("--")]
-    return ids, sha, content
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    return lines, sha, content
 
 def update_github_whitelist(new_content, sha):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
@@ -35,6 +36,28 @@ def update_github_whitelist(new_content, sha):
     encoded = base64.b64encode(new_content.encode("utf-8")).decode("utf-8")
     payload = {"message": "Updated whitelist", "content": encoded, "sha": sha}
     requests.put(url, headers=headers, data=json.dumps(payload))
+
+def get_roblox_avatar(user_id):
+    try:
+        user_url = f"https://api.roblox.com/users/{user_id}"
+        user_r = requests.get(user_url)
+        avatar_url = f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={user_id}&size=150x150&format=Png"
+        avatar_r = requests.get(avatar_url)
+        avatar_data = avatar_r.json()
+        if avatar_data and "data" in avatar_data and len(avatar_data["data"]) > 0:
+            return avatar_data["data"][0]["imageUrl"]
+    except:
+        pass
+    return None
+
+def parse_entry(line):
+    parts = line.split("|")
+    user_id = parts[0].strip()
+    date = parts[1].strip() if len(parts) > 1 else "Unknown"
+    return user_id, date
+
+def get_ids_only(lines):
+    return [parse_entry(line)[0] for line in lines if not line.startswith("--")]
 
 @client.event
 async def on_ready():
@@ -45,7 +68,7 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    if message.content.startswith("!add") or message.content.startswith("!remove") or message.content == "!list" or message.content == "!help":
+    if message.content.startswith("!add") or message.content.startswith("!remove") or message.content == "!list" or message.content == "!help" or message.content.startswith("!check") or message.content == "!clear":
         if message.author.id != OWNER_ID:
             embed = discord.Embed(
                 title="🚫 Access Denied",
@@ -53,70 +76,138 @@ async def on_message(message):
                 color=0xFF0000
             )
             embed.set_footer(text="Whitelist Bot • Only owner can use commands")
+            embed.timestamp = datetime.utcnow()
             await message.channel.send(embed=embed)
             return
 
     if message.content.startswith("!add "):
         user_id = message.content.split(" ")[1].strip()
-        ids, sha, content = get_github_whitelist()
+        lines, sha, content = get_github_whitelist()
+        ids = get_ids_only(lines)
         if user_id in ids:
             embed = discord.Embed(
                 title="⚠️ Already Whitelisted",
-                description=f"**{user_id}** is already in the whitelist.",
+                description=f"**User ID:** `{user_id}`\nThis user is already in the whitelist.",
                 color=0xFFCC00
             )
             embed.set_footer(text="Whitelist Bot")
+            embed.timestamp = datetime.utcnow()
         else:
-            new_content = content.strip() + f"\n{user_id}"
+            date = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+            new_entry = f"{user_id} | {date}"
+            new_content = content.strip() + f"\n{new_entry}"
             update_github_whitelist(new_content, sha)
             embed = discord.Embed(
-                title="✅ User Added",
-                description=f"**{user_id}** has been added to the whitelist.",
+                title="✅ User Whitelisted",
+                description=f"**User ID:** `{user_id}`\n**Added on:** {date} UTC",
                 color=0x00FF7F
             )
             embed.add_field(name="Total Users", value=str(len(ids) + 1), inline=True)
+            embed.add_field(name="GitHub", value="✅ Updated", inline=True)
+            avatar = get_roblox_avatar(user_id)
+            if avatar:
+                embed.set_thumbnail(url=avatar)
             embed.set_footer(text="Whitelist Bot • GitHub updated")
+            embed.timestamp = datetime.utcnow()
         await message.channel.send(embed=embed)
 
     elif message.content.startswith("!remove "):
         user_id = message.content.split(" ")[1].strip()
-        ids, sha, content = get_github_whitelist()
+        lines, sha, content = get_github_whitelist()
+        ids = get_ids_only(lines)
         if user_id not in ids:
             embed = discord.Embed(
                 title="❌ Not Found",
-                description=f"**{user_id}** is not in the whitelist.",
+                description=f"**User ID:** `{user_id}`\nThis user is not in the whitelist.",
                 color=0xFF0000
             )
             embed.set_footer(text="Whitelist Bot")
+            embed.timestamp = datetime.utcnow()
         else:
-            new_lines = [line for line in content.splitlines() if line.strip() != user_id]
+            new_lines = [line for line in lines if not line.startswith(user_id)]
             new_content = "\n".join(new_lines)
             update_github_whitelist(new_content, sha)
             embed = discord.Embed(
                 title="🗑️ User Removed",
-                description=f"**{user_id}** has been removed from the whitelist.",
+                description=f"**User ID:** `{user_id}`\nThis user has been removed from the whitelist.",
                 color=0xFF4500
             )
             embed.add_field(name="Total Users", value=str(len(ids) - 1), inline=True)
+            embed.add_field(name="GitHub", value="✅ Updated", inline=True)
+            avatar = get_roblox_avatar(user_id)
+            if avatar:
+                embed.set_thumbnail(url=avatar)
             embed.set_footer(text="Whitelist Bot • GitHub updated")
+            embed.timestamp = datetime.utcnow()
+        await message.channel.send(embed=embed)
+
+    elif message.content.startswith("!check "):
+        user_id = message.content.split(" ")[1].strip()
+        lines, sha, content = get_github_whitelist()
+        found = None
+        for line in lines:
+            if line.startswith(user_id):
+                found = line
+                break
+        if found:
+            uid, date = parse_entry(found)
+            embed = discord.Embed(
+                title="✅ User is Whitelisted",
+                description=f"**User ID:** `{user_id}`\n**Added on:** {date} UTC",
+                color=0x00FF7F
+            )
+            avatar = get_roblox_avatar(user_id)
+            if avatar:
+                embed.set_thumbnail(url=avatar)
+            embed.set_footer(text="Whitelist Bot")
+            embed.timestamp = datetime.utcnow()
+        else:
+            embed = discord.Embed(
+                title="❌ Not Whitelisted",
+                description=f"**User ID:** `{user_id}`\nThis user does not have access.",
+                color=0xFF0000
+            )
+            avatar = get_roblox_avatar(user_id)
+            if avatar:
+                embed.set_thumbnail(url=avatar)
+            embed.set_footer(text="Whitelist Bot")
+            embed.timestamp = datetime.utcnow()
         await message.channel.send(embed=embed)
 
     elif message.content == "!list":
-        ids, sha, content = get_github_whitelist()
-        if not ids:
+        lines, sha, content = get_github_whitelist()
+        entries = [line for line in lines if not line.startswith("--")]
+        if not entries:
             embed = discord.Embed(
                 title="📋 Whitelist",
                 description="The whitelist is currently empty.",
                 color=0x5865F2
             )
         else:
+            desc = ""
+            for line in entries:
+                uid, date = parse_entry(line)
+                desc += f"• `{uid}` — added {date}\n"
             embed = discord.Embed(
                 title="📋 Whitelist",
-                description="\n".join([f"• `{id}`" for id in ids]),
+                description=desc,
                 color=0x5865F2
             )
-            embed.add_field(name="Total Users", value=str(len(ids)), inline=True)
+            embed.add_field(name="Total Users", value=str(len(entries)), inline=True)
         embed.set_footer(text="Whitelist Bot • Powered by GitHub")
+        embed.timestamp = datetime.utcnow()
+        await message.channel.send(embed=embed)
+
+    elif message.content == "!clear":
+        lines, sha, content = get_github_whitelist()
+        update_github_whitelist("", sha)
+        embed = discord.Embed(
+            title="🧹 Whitelist Cleared",
+            description="All users have been removed from the whitelist.",
+            color=0xFF4500
+        )
+        embed.set_footer(text="Whitelist Bot • GitHub updated")
+        embed.timestamp = datetime.utcnow()
         await message.channel.send(embed=embed)
 
     elif message.content == "!help":
@@ -127,9 +218,12 @@ async def on_message(message):
         )
         embed.add_field(name="!add [ID]", value="➕ Add a user to the whitelist", inline=False)
         embed.add_field(name="!remove [ID]", value="➖ Remove a user from the whitelist", inline=False)
+        embed.add_field(name="!check [ID]", value="🔍 Check if a user is whitelisted", inline=False)
         embed.add_field(name="!list", value="📋 Show all whitelisted users", inline=False)
+        embed.add_field(name="!clear", value="🧹 Clear the entire whitelist", inline=False)
         embed.add_field(name="!help", value="📖 Show this help message", inline=False)
         embed.set_footer(text="Whitelist Bot • Only owner can use commands")
+        embed.timestamp = datetime.utcnow()
         await message.channel.send(embed=embed)
 
 print("Starting bot...")
