@@ -105,16 +105,6 @@ def get_roblox_user_by_username(username):
         pass
     return None, None
 
-def get_roblox_info_by_id(user_id):
-    try:
-        url = f"https://users.roblox.com/v1/users/{user_id}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=5)
-        data = r.json()
-        return data.get("name", "Unknown")
-    except:
-        return "Unknown"
-
 def parse_entry(line):
     parts = line.split("|")
     user_id = parts[0].strip() if len(parts) > 0 else ""
@@ -136,8 +126,7 @@ def parse_key(line):
     max_uses = parts[3].strip() if len(parts) > 3 else "1"
     expiry = parts[4].strip() if len(parts) > 4 else "never"
     days = parts[5].strip() if len(parts) > 5 else "never"
-    discord_id = parts[6].strip() if len(parts) > 6 else "none"
-    return key, date, used, max_uses, expiry, days, discord_id
+    return key, date, used, max_uses, expiry, days
 
 def get_ids_only(lines):
     return [parse_entry(line)[0] for line in lines if not line.startswith("--")]
@@ -162,7 +151,7 @@ def get_hwid_reset_time(discord_id):
         if len(parts) >= 2 and parts[0].strip() == str(discord_id):
             try:
                 last_reset = datetime.strptime(parts[1].strip(), "%Y-%m-%d %H:%M")
-                next_reset = last_reset + timedelta(days=2)
+                next_reset = last_reset + timedelta(days=3)
                 if datetime.utcnow() < next_reset:
                     return next_reset
             except:
@@ -236,6 +225,57 @@ class ConfirmView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=None)
         self.stop()
 
+class ScriptView(discord.ui.View):
+    def __init__(self, script_text):
+        super().__init__(timeout=60)
+        self.script_text = script_text
+
+    @discord.ui.button(label="📋 Copy Script", style=discord.ButtonStyle.grey)
+    async def copy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            f"```lua\n{self.script_text}\n```",
+            ephemeral=True
+        )
+
+class HWIDResetView(discord.ui.View):
+    def __init__(self, entries):
+        super().__init__(timeout=60)
+        for i, (uid, roblox_name, discord_str) in enumerate(entries[:10]):
+            button = discord.ui.Button(
+                label=f"🔄 {roblox_name[:20]}",
+                style=discord.ButtonStyle.red,
+                row=i // 3
+            )
+            button.callback = self.make_callback(uid, roblox_name, discord_str)
+            self.add_item(button)
+
+    def make_callback(self, uid, roblox_name, discord_str):
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != OWNER_ID:
+                await interaction.response.send_message("🚫 Access Denied", ephemeral=True)
+                return
+            lines, sha, content = get_github_file(GITHUB_FILE)
+            new_lines = []
+            for line in lines:
+                if line.startswith(uid):
+                    e_uid, e_date, e_rname, e_dstr, e_note, e_expiry, e_uses, e_hwid, e_skey = parse_entry(line)
+                    new_lines.append(f"{e_uid} | {e_date} | {e_rname} | {e_dstr} | {e_note or 'none'} | {e_expiry or 'never'} | {e_uses} | none | {e_skey or 'none'}")
+                else:
+                    new_lines.append(line)
+            update_github_file(GITHUB_FILE, "\n".join(new_lines), sha)
+            if discord_str and discord_str != "none":
+                reset_lines, reset_sha, _ = get_github_file(HWID_RESET_FILE)
+                new_reset = [l for l in reset_lines if not l.startswith(str(discord_str))]
+                update_github_file(HWID_RESET_FILE, "\n".join(new_reset), reset_sha)
+            embed = discord.Embed(
+                title="🔄 HWID Reset",
+                description=f"**{roblox_name}**'s HWID has been reset and cooldown cleared.",
+                color=COLORS["success"]
+            )
+            embed.timestamp = datetime.utcnow()
+            await interaction.response.edit_message(embed=embed, view=None)
+        return callback
+
 class GenerateKeyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=60)
@@ -264,7 +304,7 @@ class GenerateKeyView(discord.ui.View):
             expiry_dt = datetime.utcnow() + timedelta(hours=hours)
             expiry = expiry_dt.strftime("%Y-%m-%d %H:%M")
         key_lines, key_sha, key_content = get_github_file(KEY_FILE)
-        new_entry = f"{key} | {date} | false | 1 | {expiry} | never | none"
+        new_entry = f"{key} | {date} | false | 1 | {expiry} | never"
         new_content = key_content.strip() + f"\n{new_entry}"
         update_github_file(KEY_FILE, new_content, key_sha)
         try:
@@ -304,7 +344,7 @@ class PanelView(discord.ui.View):
                 user_entry = (uid, date, roblox_name, discord_str, note, expiry, uses, hwid, script_key)
                 break
         if not user_entry:
-            embed = discord.Embed(title="❌ Not Whitelisted", description="You are not whitelisted. Redeem a key first.", color=COLORS["error"])
+            embed = discord.Embed(title="❌ Not Whitelisted", description="Redeem a key first.", color=COLORS["error"])
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         uid, date, roblox_name, discord_str, note, expiry, uses, hwid, script_key = user_entry
@@ -317,16 +357,23 @@ class PanelView(discord.ui.View):
             embed = discord.Embed(title="❌ No Script Set", color=COLORS["error"])
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
-        embed = discord.Embed(title="📜 Here is your script:", color=COLORS["success"])
+        embed = discord.Embed(
+            title="Here is your script:",
+            color=COLORS["success"]
+        )
         embed.description = f"```lua\n{script_content[:1900]}\n```"
-        embed.set_footer(text="⚠️ Only you can see this • Do not share!")
+        embed.set_footer(text="Only you can see this • Dismiss message")
         embed.timestamp = datetime.utcnow()
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(
+            embed=embed,
+            view=ScriptView(script_content[:1900]),
+            ephemeral=True
+        )
 
     @discord.ui.button(label="👤 Get Role", style=discord.ButtonStyle.blurple, custom_id="panel_role", row=0)
     async def get_role(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not WHITELIST_ROLE_ID:
-            embed = discord.Embed(title="❌ No Role Set", description="Owner has not set a whitelist role yet.", color=COLORS["error"])
+            embed = discord.Embed(title="❌ No Role Set", color=COLORS["error"])
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         lines, _, _ = get_github_file(GITHUB_FILE)
@@ -390,7 +437,7 @@ class PanelView(discord.ui.View):
         set_hwid_reset_time(interaction.user.id)
         embed = discord.Embed(
             title="🔄 HWID Reset",
-            description="Your HWID has been reset!\nYou can now use the script on a new executor.\n\n⚠️ Next reset available in **48 hours**.",
+            description="Your HWID has been reset!\nYou can now use the script on a new executor.\n\n⚠️ Next reset available in **72 hours**.",
             color=COLORS["success"]
         )
         embed.timestamp = datetime.utcnow()
@@ -409,7 +456,7 @@ class PanelView(discord.ui.View):
                 expired = is_expired(expiry)
                 next_hwid = get_hwid_reset_time(interaction.user.id)
                 embed = discord.Embed(
-                    title=f"📊 Stats — {roblox_name or uid}",
+                    title="📊 Your Stats",
                     color=COLORS["warning"] if expired else COLORS["success"]
                 )
                 embed.add_field(name="Roblox", value=roblox_name or uid, inline=True)
@@ -434,39 +481,46 @@ class PanelView(discord.ui.View):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 class RedeemKeyModal(discord.ui.Modal, title="🔑 Redeem Key"):
-    key_input = discord.ui.TextInput(
-        label="Enter your key",
-        placeholder="SEMI-XXXX-XXXX-XXXX",
-        required=True
-    )
+    key_input = discord.ui.TextInput(label="Enter your key", placeholder="SEMI-XXXX-XXXX-XXXX", required=True)
+    roblox_input = discord.ui.TextInput(label="Your Roblox username", placeholder="Your Roblox username", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         key = self.key_input.value.strip().upper()
+        roblox_username = self.roblox_input.value.strip()
         key_lines, key_sha, key_content = get_github_file(KEY_FILE)
         found_key = None
         for line in key_lines:
-            k, date, used, max_uses, expiry, days, discord_id = parse_key(line)
+            k, date, used, max_uses, expiry, days = parse_key(line)
             if k == key:
                 found_key = line
                 break
         if not found_key:
-            embed = discord.Embed(title="❌ Invalid Key", description="This key does not exist.", color=COLORS["error"])
+            embed = discord.Embed(title="❌ Invalid Key", color=COLORS["error"])
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
-        k, date, used, max_uses, expiry, days, discord_id = parse_key(found_key)
+        k, date, used, max_uses, expiry, days = parse_key(found_key)
         if used == "true":
-            embed = discord.Embed(title="❌ Key Already Used", description="This key has already been redeemed.", color=COLORS["error"])
+            embed = discord.Embed(title="❌ Key Already Used", color=COLORS["error"])
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         if is_expired(expiry):
             embed = discord.Embed(title="❌ Key Expired", color=COLORS["error"])
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
+        user_id, roblox_name = get_roblox_user_by_username(roblox_username)
+        if not user_id:
+            embed = discord.Embed(title="❌ Roblox User Not Found", color=COLORS["error"])
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
         wl_lines, wl_sha, wl_content = get_github_file(GITHUB_FILE)
         for line in wl_lines:
             uid, d, rn, ds, no, ex, us, hw, sk = parse_entry(line)
             if ds and ds == str(interaction.user.id):
-                embed = discord.Embed(title="⚠️ Already Whitelisted", description="Your Discord account is already whitelisted.", color=COLORS["warning"])
+                embed = discord.Embed(title="⚠️ Already Whitelisted", color=COLORS["warning"])
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+            if uid == user_id:
+                embed = discord.Embed(title="⚠️ Roblox Account Already Whitelisted", color=COLORS["warning"])
                 await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
         add_date = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
@@ -477,16 +531,14 @@ class RedeemKeyModal(discord.ui.Modal, title="🔑 Redeem Key"):
                 expiry_date = expiry_dt.strftime("%Y-%m-%d %H:%M")
             except:
                 pass
-        discord_id_str = str(interaction.user.id)
-        roblox_name = f"Discord:{interaction.user.name}"
-        new_entry = f"0 | {add_date} | {roblox_name} | {discord_id_str} | Redeemed key | {expiry_date} | 0 | none | none"
+        new_entry = f"{user_id} | {add_date} | {roblox_name} | {interaction.user.id} | Redeemed key | {expiry_date} | 0 | none | none"
         new_wl_content = wl_content.strip() + f"\n{new_entry}"
         update_github_file(GITHUB_FILE, new_wl_content, wl_sha)
         new_key_lines = []
         for line in key_lines:
-            k2, d2, u2, m2, e2, dy2, did2 = parse_key(line)
+            k2, d2, u2, m2, e2, dy2 = parse_key(line)
             if k2 == key:
-                new_key_lines.append(f"{k2} | {d2} | true | {m2} | {e2} | {dy2} | {discord_id_str}")
+                new_key_lines.append(f"{k2} | {d2} | true | {m2} | {e2} | {dy2}")
             else:
                 new_key_lines.append(line)
         update_github_file(KEY_FILE, "\n".join(new_key_lines), key_sha)
@@ -499,29 +551,29 @@ class RedeemKeyModal(discord.ui.Modal, title="🔑 Redeem Key"):
                     role_given = True
                 except:
                     pass
+        avatar = get_roblox_avatar(user_id)
         embed = discord.Embed(
             title="✅ Key Redeemed!",
             description=(
-                f"Welcome **{interaction.user.name}**!\n\n"
-                f"You now have access to the script.\n"
-                f"Click **Get Script** to receive it.\n"
+                f"Welcome **{roblox_name}**!\n\n"
+                f"Click **Get Script** to receive your script.\n"
                 f"{'✅ Role has been given!' if role_given else '👤 Click Get Role to claim your role.'}"
             ),
             color=COLORS["success"]
         )
+        embed.add_field(name="Roblox", value=roblox_name, inline=True)
         embed.add_field(name="Discord", value=interaction.user.mention, inline=True)
         embed.add_field(name="Expires", value=expiry_date if expiry_date != "never" else "Never", inline=True)
+        if avatar:
+            embed.set_image(url=avatar)
         embed.set_footer(text="ꜱᴇᴍɪ-ɪɴꜱᴛᴀɴᴛ Whitelist System")
         embed.timestamp = datetime.utcnow()
         await interaction.response.send_message(embed=embed, ephemeral=True)
         if LOG_CHANNEL_ID:
-            log_embed = discord.Embed(
-                title="🔑 Key Redeemed",
-                description=f"**{interaction.user.name}** redeemed key `{key}`",
-                color=COLORS["success"]
-            )
+            log_embed = discord.Embed(title="🔑 Key Redeemed", description=f"**{roblox_name}** redeemed `{key}`", color=COLORS["success"])
             log_embed.add_field(name="Discord", value=interaction.user.mention, inline=True)
-            log_embed.add_field(name="Expires", value=expiry_date if expiry_date != "never" else "Never", inline=True)
+            if avatar:
+                log_embed.set_thumbnail(url=avatar)
             log_embed.timestamp = datetime.utcnow()
             await send_log(log_embed)
 
@@ -550,6 +602,32 @@ async def panel(interaction: discord.Interaction):
     embed.set_footer(text=f"Sent by {interaction.user.name} • {datetime.utcnow().strftime('%m/%d/%Y %I:%M %p')}")
     await interaction.response.send_message(embed=embed, view=PanelView())
 
+@tree.command(name="hwidpanel", description="Open HWID reset panel")
+async def hwid_panel(interaction: discord.Interaction):
+    if not owner_only(interaction):
+        embed = discord.Embed(title="🚫 Access Denied", color=COLORS["error"])
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    lines, _, _ = get_github_file(GITHUB_FILE)
+    entries = []
+    for line in lines:
+        if not line.startswith("--"):
+            uid, date, roblox_name, discord_str, note, expiry, uses, hwid, script_key = parse_entry(line)
+            if hwid and hwid != "none":
+                entries.append((uid, roblox_name or uid, discord_str or "none"))
+    if not entries:
+        embed = discord.Embed(title="🔒 HWID Panel", description="No users have HWID locked.", color=COLORS["info"])
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        return
+    embed = discord.Embed(
+        title="🔒 HWID Reset Panel",
+        description="Click a button to reset that user's HWID instantly.",
+        color=COLORS["gold"]
+    )
+    view = HWIDResetView(entries)
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
 @tree.command(name="genkey", description="Generate a whitelist key")
 async def gen_key(interaction: discord.Interaction):
     if not owner_only(interaction):
@@ -564,7 +642,7 @@ async def gen_key(interaction: discord.Interaction):
     embed.set_footer(text="Key sent to your DMs only")
     await interaction.response.send_message(embed=embed, view=GenerateKeyView(), ephemeral=True)
 
-@tree.command(name="add", description="Add a user to the whitelist by Roblox username")
+@tree.command(name="add", description="Add a user to the whitelist")
 @app_commands.describe(username="Roblox username", discord_user="Their Discord user", note="Note", days="Days of access")
 async def add_user(interaction: discord.Interaction, username: str, discord_user: discord.Member = None, note: str = None, days: int = None):
     if not owner_only(interaction):
@@ -610,7 +688,7 @@ async def add_user(interaction: discord.Interaction, username: str, discord_user
     embed.add_field(name="Expires", value=expiry if expiry != "never" else "Never", inline=True)
     if avatar:
         embed.set_image(url=avatar)
-    embed.set_footer(text="ꜱᴇᴍɪ-ɪɴꜱᴛᴀɴᴛ Whitelist • GitHub updated")
+    embed.set_footer(text="ꜱᴇᴍɪ-ɪɴꜱᴛᴀɴᴛ Whitelist")
     embed.timestamp = datetime.utcnow()
     await interaction.followup.send(embed=embed)
     await send_log(embed)
@@ -619,7 +697,7 @@ async def add_user(interaction: discord.Interaction, username: str, discord_user
         try:
             dm_embed = discord.Embed(
                 title="✅ You have been Whitelisted!",
-                description=f"**Roblox:** {roblox_name}\n**Expires:** {expiry if expiry != 'never' else 'Never'}\n\nGo to the server panel to get your script and role!",
+                description=f"**Roblox:** {roblox_name}\n**Expires:** {expiry if expiry != 'never' else 'Never'}\n\nGo to the server panel to get your script!",
                 color=COLORS["success"]
             )
             await discord_user.send(embed=dm_embed)
@@ -729,7 +807,7 @@ async def ban_user(interaction: discord.Interaction, username: str):
     await interaction.followup.send(embed=confirm_embed, view=view)
 
 @tree.command(name="unban", description="Unban a Roblox user")
-@app_commands.describe(username="Roblox username to unban")
+@app_commands.describe(username="Roblox username")
 async def unban_user(interaction: discord.Interaction, username: str):
     if not owner_only(interaction):
         embed = discord.Embed(title="🚫 Access Denied", color=COLORS["error"])
@@ -802,8 +880,9 @@ async def list_users(interaction: discord.Interaction):
     ban_lines, _, _ = get_github_file(BAN_FILE)
     entries = [l for l in lines if not l.startswith("--")]
     ban_entries = [l for l in ban_lines if not l.startswith("--")]
-    embed = discord.Embed(title="📋 WHITELIST PANEL", color=COLORS["info"])
-    embed.description = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    github_url = f"https://github.com/{GITHUB_REPO}/blob/main/{GITHUB_FILE}"
+    embed = discord.Embed(title="📋 ꜱᴇᴍɪ-ɪɴꜱᴛᴀɴᴛ WHITELIST", color=COLORS["info"])
+    embed.description = f"[📄 View Full List on GitHub]({github_url})\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     if not entries:
         embed.description += "The whitelist is currently empty.\n"
     else:
@@ -814,10 +893,14 @@ async def list_users(interaction: discord.Interaction):
             expired = is_expired(expiry)
             status = "⚠️" if expired else "✅"
             hwid_status = "🔒" if hwid and hwid != "none" else "🔓"
-            embed.description += f"{status} **{name}** {hwid_status} — {discord_mention}\n"
+            avatar = get_roblox_avatar(uid)
+            avatar_link = f"[🖼️]({avatar})" if avatar else ""
+            expiry_text = expiry if expiry and expiry != "never" else "Never"
+            embed.description += f"{status} **{name}** {hwid_status} {avatar_link}\n┗ {discord_mention} • Expires: {expiry_text}\n"
     embed.description += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     embed.add_field(name="✅ Whitelisted", value=str(len(entries)), inline=True)
     embed.add_field(name="🔨 Banned", value=str(len(ban_entries)), inline=True)
+    embed.add_field(name="🔒 HWID Locked", value=str(sum(1 for l in entries if parse_entry(l)[7] and parse_entry(l)[7] != "none")), inline=True)
     embed.set_footer(text="ꜱᴇᴍɪ-ɪɴꜱᴛᴀɴᴛ Whitelist")
     embed.timestamp = datetime.utcnow()
     await interaction.followup.send(embed=embed)
@@ -855,11 +938,11 @@ async def key_list(interaction: discord.Interaction):
         return
     desc = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     for line in key_lines:
-        k, date, used, max_uses, expiry, days, discord_id = parse_key(line)
+        k, date, used, max_uses, expiry, days = parse_key(line)
         status = "✅" if used == "false" else "❌"
         if is_expired(expiry):
             status = "⚠️"
-        desc += f"{status} `{k}` — Expires: {expiry if expiry != 'never' else 'Never'}\n"
+        desc += f"{status} `{k}` — {expiry if expiry != 'never' else 'Never'}\n"
     desc += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     embed = discord.Embed(title="🔑 All Keys", description=desc, color=COLORS["gold"])
     embed.add_field(name="Total", value=str(len(key_lines)), inline=True)
@@ -883,12 +966,12 @@ async def revoke_key(interaction: discord.Interaction, key: str):
         return
     new_lines = [l for l in key_lines if parse_key(l)[0] != key_upper]
     update_github_file(KEY_FILE, "\n".join(new_lines), key_sha)
-    embed = discord.Embed(title="🗑️ Key Revoked", description=f"`{key_upper}` deleted.", color=COLORS["ban"])
+    embed = discord.Embed(title="🗑️ Key Revoked", color=COLORS["ban"])
     embed.timestamp = datetime.utcnow()
     await interaction.followup.send(embed=embed)
 
-@tree.command(name="setscript", description="Set the script sent to whitelisted users")
-@app_commands.describe(script="The loadstring URL or script")
+@tree.command(name="setscript", description="Set the script for whitelisted users")
+@app_commands.describe(script="The loadstring or script")
 async def set_script(interaction: discord.Interaction, script: str):
     if not owner_only(interaction):
         embed = discord.Embed(title="🚫 Access Denied", color=COLORS["error"])
@@ -901,7 +984,7 @@ async def set_script(interaction: discord.Interaction, script: str):
     embed.timestamp = datetime.utcnow()
     await interaction.followup.send(embed=embed, ephemeral=True)
 
-@tree.command(name="setrole", description="Set the role for whitelisted users")
+@tree.command(name="setrole", description="Set the whitelist role")
 @app_commands.describe(role="The whitelist role")
 async def set_role(interaction: discord.Interaction, role: discord.Role):
     if not owner_only(interaction):
@@ -935,10 +1018,9 @@ async def backup(interaction: discord.Interaction):
     await interaction.response.defer()
     lines, sha, content = get_github_file(GITHUB_FILE)
     date = datetime.utcnow().strftime("%Y-%m-%d_%H-%M")
-    backup_filename = f"backup_{date}.txt"
-    update_github_file(backup_filename, content, None)
-    embed = discord.Embed(title="💾 Backup Created", description=f"Saved to `{backup_filename}`.", color=COLORS["success"])
-    embed.add_field(name="Total Users", value=str(len(get_ids_only(lines))), inline=True)
+    update_github_file(f"backup_{date}.txt", content, None)
+    embed = discord.Embed(title="💾 Backup Created", color=COLORS["success"])
+    embed.add_field(name="Users", value=str(len(get_ids_only(lines))), inline=True)
     embed.timestamp = datetime.utcnow()
     await interaction.followup.send(embed=embed)
 
@@ -958,8 +1040,7 @@ async def rename_user(interaction: discord.Interaction, old_username: str, new_u
         await interaction.followup.send(embed=embed)
         return
     lines, sha, content = get_github_file(GITHUB_FILE)
-    ids = get_ids_only(lines)
-    if old_id not in ids:
+    if old_id not in get_ids_only(lines):
         embed = discord.Embed(title="❌ Not Whitelisted", color=COLORS["error"])
         await interaction.followup.send(embed=embed)
         return
@@ -974,31 +1055,37 @@ async def rename_user(interaction: discord.Interaction, old_username: str, new_u
     embed = discord.Embed(title="🔄 Updated", description=f"**{old_name}** → **{new_name or old_name}**", color=COLORS["blue"])
     embed.timestamp = datetime.utcnow()
     await interaction.followup.send(embed=embed)
-    await send_log(embed)
 
 @tree.command(name="help", description="Show all commands")
 async def help_cmd(interaction: discord.Interaction):
-    embed = discord.Embed(title="📖 ꜱᴇᴍɪ-ɪɴꜱᴛᴀɴᴛ Whitelist Bot", color=COLORS["purple"])
-    embed.add_field(name="👑 OWNER", value="\u200b", inline=False)
-    embed.add_field(name="/add", value="➕ Add user", inline=True)
-    embed.add_field(name="/remove", value="➖ Remove user", inline=True)
-    embed.add_field(name="/ban", value="🔨 Ban user", inline=True)
-    embed.add_field(name="/unban", value="✅ Unban user", inline=True)
-    embed.add_field(name="/list", value="📋 List users", inline=True)
-    embed.add_field(name="/clear", value="🧹 Clear all", inline=True)
-    embed.add_field(name="/rename", value="🔄 Update name", inline=True)
-    embed.add_field(name="/hwid_reset", value="🔄 Force reset HWID", inline=True)
-    embed.add_field(name="/genkey", value="🔑 Generate key", inline=True)
-    embed.add_field(name="/keylist", value="🔑 List keys", inline=True)
-    embed.add_field(name="/revokekey", value="🗑️ Delete key", inline=True)
-    embed.add_field(name="/setscript", value="📜 Set script", inline=True)
-    embed.add_field(name="/setrole", value="👑 Set role", inline=True)
-    embed.add_field(name="/setlog", value="📋 Set log", inline=True)
-    embed.add_field(name="/backup", value="💾 Backup", inline=True)
-    embed.add_field(name="/panel", value="🎛️ Send panel", inline=True)
-    embed.set_footer(text="ꜱᴇᴍɪ-ɪɴꜱᴛᴀɴᴛ Whitelist")
+    embed = discord.Embed(
+        title="ꜱᴇᴍɪ-ɪɴꜱᴛᴀɴᴛ — Commands",
+        description="━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        color=COLORS["gold"]
+    )
+    embed.add_field(
+        name="👑 Management",
+        value="`/add` `/remove` `/ban` `/unban` `/list` `/clear` `/rename`",
+        inline=False
+    )
+    embed.add_field(
+        name="🔑 Keys",
+        value="`/genkey` `/keylist` `/revokekey`",
+        inline=False
+    )
+    embed.add_field(
+        name="🔒 HWID",
+        value="`/hwid_reset` `/hwidpanel`",
+        inline=False
+    )
+    embed.add_field(
+        name="⚙️ Setup",
+        value="`/panel` `/setscript` `/setrole` `/setlog` `/backup`",
+        inline=False
+    )
+    embed.set_footer(text="ꜱᴇᴍɪ-ɪɴꜱᴛᴀɴᴛ Whitelist System")
     embed.timestamp = datetime.utcnow()
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 print("Starting bot...")
 client.run(TOKEN)
