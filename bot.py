@@ -470,24 +470,30 @@ class AnnounceModal(discord.ui.Modal, title="📢 Announce to All Users"):
         await interaction.followup.send(embed=make_embed("📢 Done", f"✅ Sent: **{sent}**\n❌ Failed: **{failed}**", "success"), ephemeral=True)
 
 class ResellerModal(discord.ui.Modal, title="👥 Add Reseller"):
-    discord_id = discord.ui.TextInput(label="Discord ID", required=True)
+    username = discord.ui.TextInput(label="Discord Username", placeholder="e.g. yez.v (without @)", required=True)
     keys_count = discord.ui.TextInput(label="Number of keys to give", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         try:
-            uid = int(self.discord_id.value.strip())
             count = int(self.keys_count.value.strip())
         except:
-            await interaction.followup.send(embed=make_embed("❌ Invalid Input", color_key="error"), ephemeral=True)
+            await interaction.followup.send(embed=make_embed("❌ Invalid number", color_key="error"), ephemeral=True)
             return
-        current = get_reseller_keys_left(uid)
-        set_reseller_keys(uid, current + count)
-        await interaction.followup.send(embed=make_embed("✅ Reseller Updated", f"<@{uid}> now has **{current + count}** keys.", "success"), ephemeral=True)
+        username = self.username.value.strip().lower().replace("@", "")
+        member = None
+        for m in interaction.guild.members:
+            if m.name.lower() == username or (m.display_name.lower() == username):
+                member = m
+                break
+        if not member:
+            await interaction.followup.send(embed=make_embed("❌ User Not Found", f"Could not find **{username}** in this server.", "error"), ephemeral=True)
+            return
+        current = get_reseller_keys_left(member.id)
+        set_reseller_keys(member.id, current + count)
+        await interaction.followup.send(embed=make_embed("✅ Reseller Updated", f"{member.mention} now has **{current + count}** keys.", "success"), ephemeral=True)
         try:
-            m = interaction.guild.get_member(uid)
-            if m:
-                await m.send(embed=make_embed("🔑 You are a Reseller!", f"You have **{count}** keys. Use `/adminpanel` to generate.", "gold"))
+            await member.send(embed=make_embed("🔑 You are a Reseller!", f"You have **{count}** keys. Use `/adminpanel` to generate.", "gold"))
         except:
             pass
 
@@ -714,12 +720,12 @@ class AdminPanelView(discord.ui.View):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(UnbanUserModal())
 
-    @discord.ui.button(label="📅 Extend", style=discord.ButtonStyle.blurple, row=0)
+    @discord.ui.button(label="📅 +Days", style=discord.ButtonStyle.blurple, row=0)
     async def extend_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(ExtendExpiryModal())
 
-    @discord.ui.button(label="🔑 Gen Key", style=discord.ButtonStyle.blurple, row=1)
+    @discord.ui.button(label="🔑 Key", style=discord.ButtonStyle.blurple, row=1)
     async def genkey_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_or_reseller(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_message(embed=make_embed("🔑 Generate Key", "Select key type:", "gold"), view=GenerateKeyView(), ephemeral=True)
@@ -744,11 +750,11 @@ class AdminPanelView(discord.ui.View):
                 status = "⚠️" if is_expired(expiry) else "✅"
                 embed.description += f"{status} **{name}** — {dmention}\n"
         embed.description += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        embed.add_field(name="✅ Total", value=str(len(entries)), inline=True)
-        embed.add_field(name="🔨 Banned", value=str(len(ban_entries)), inline=True)
+        embed.add_field(name="✅", value=str(len(entries)), inline=True)
+        embed.add_field(name="🔨", value=str(len(ban_entries)), inline=True)
         await i.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="📢 Announce", style=discord.ButtonStyle.grey, row=1)
+    @discord.ui.button(label="📢 DM All", style=discord.ButtonStyle.grey, row=1)
     async def announce_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(AnnounceModal())
@@ -758,18 +764,7 @@ class AdminPanelView(discord.ui.View):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(TransferModal())
 
-    @discord.ui.button(label="🔒 HWID", style=discord.ButtonStyle.grey, row=2)
-    async def hwid_btn(self, i: discord.Interaction, b: discord.ui.Button):
-        if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
-        await i.response.defer(ephemeral=True)
-        lines, _, _ = get_github_file(GITHUB_FILE)
-        entries = [(parse_entry(l)[0], parse_entry(l)[2] or parse_entry(l)[0], parse_entry(l)[3] or "none") for l in lines if not l.startswith("--") and parse_entry(l)[7] and parse_entry(l)[7] != "none"]
-        if not entries:
-            await i.followup.send(embed=make_embed("🔒 No HWID locked users", color_key="info"), ephemeral=True)
-            return
-        await i.followup.send(embed=make_embed("🔒 HWID Reset Panel", "Tap a user to reset.", "gold"), view=HWIDResetView(entries), ephemeral=True)
-
-    @discord.ui.button(label="🔑 Keys", style=discord.ButtonStyle.grey, row=2)
+    @discord.ui.button(label="🔑 Keys", style=discord.ButtonStyle.grey, row=1)
     async def keylist_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.defer(ephemeral=True)
@@ -788,7 +783,18 @@ class AdminPanelView(discord.ui.View):
         embed.add_field(name="Total", value=str(len(kl)), inline=True)
         await i.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="👥 Resellers", style=discord.ButtonStyle.grey, row=2)
+    @discord.ui.button(label="🔒 HWID", style=discord.ButtonStyle.grey, row=2)
+    async def hwid_btn(self, i: discord.Interaction, b: discord.ui.Button):
+        if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
+        await i.response.defer(ephemeral=True)
+        lines, _, _ = get_github_file(GITHUB_FILE)
+        entries = [(parse_entry(l)[0], parse_entry(l)[2] or parse_entry(l)[0], parse_entry(l)[3] or "none") for l in lines if not l.startswith("--") and parse_entry(l)[7] and parse_entry(l)[7] != "none"]
+        if not entries:
+            await i.followup.send(embed=make_embed("🔒 No HWID locked users", color_key="info"), ephemeral=True)
+            return
+        await i.followup.send(embed=make_embed("🔒 HWID Reset Panel", "Tap a user to reset.", "gold"), view=HWIDResetView(entries), ephemeral=True)
+
+    @discord.ui.button(label="👥 Resell", style=discord.ButtonStyle.grey, row=2)
     async def resellers_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(ResellerModal())
