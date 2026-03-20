@@ -1,3 +1,13 @@
+import discord
+from discord import app_commands
+import os
+import requests
+import base64
+import json
+import random
+import string
+from datetime import datetime, timedelta
+
 TOKEN = os.environ.get("TOKEN")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 OWNER_ID = 1449777458218926243
