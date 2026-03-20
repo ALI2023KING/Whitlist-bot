@@ -1,5 +1,3 @@
-
-
 TOKEN = os.environ.get("TOKEN")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 OWNER_ID = 1449777458218926243
