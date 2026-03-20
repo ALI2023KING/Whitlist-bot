@@ -700,32 +700,32 @@ class AdminPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
-    @discord.ui.button(label="➕ Add", style=discord.ButtonStyle.green, row=0)
+    @discord.ui.button(label="➕ Add", style=discord.ButtonStyle.grey, row=0)
     async def add_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(AddUserModal())
 
-    @discord.ui.button(label="➖ Remove", style=discord.ButtonStyle.red, row=0)
+    @discord.ui.button(label="➖ Remove", style=discord.ButtonStyle.grey, row=0)
     async def remove_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(RemoveUserModal())
 
-    @discord.ui.button(label="🔨 Ban", style=discord.ButtonStyle.red, row=0)
+    @discord.ui.button(label="🔨 Ban", style=discord.ButtonStyle.grey, row=0)
     async def ban_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(BanUserModal())
 
-    @discord.ui.button(label="✅ Unban", style=discord.ButtonStyle.green, row=0)
+    @discord.ui.button(label="✅ Unban", style=discord.ButtonStyle.grey, row=0)
     async def unban_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(UnbanUserModal())
 
-    @discord.ui.button(label="📅 +Days", style=discord.ButtonStyle.blurple, row=0)
+    @discord.ui.button(label="📅 +Days", style=discord.ButtonStyle.grey, row=0)
     async def extend_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(ExtendExpiryModal())
 
-    @discord.ui.button(label="🔑 Key", style=discord.ButtonStyle.blurple, row=1)
+    @discord.ui.button(label="🔑 Key", style=discord.ButtonStyle.grey, row=1)
     async def genkey_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_or_reseller(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_message(embed=make_embed("🔑 Generate Key", "Select key type:", "gold"), view=GenerateKeyView(), ephemeral=True)
@@ -1119,11 +1119,48 @@ async def stock(interaction: discord.Interaction):
 
 @tree.command(name="help", description="Show all commands")
 async def help_cmd(interaction: discord.Interaction):
-    embed = discord.Embed(title=f"{BRAND_NAME} — Help", description="━━━━━━━━━━━━━━━━━━━━━━━━━━━━", color=BRAND_COLOR)
-    embed.add_field(name="🎛️ Main", value="`/panel` `/adminpanel` `/setscript` `/setrole` `/setlog`", inline=False)
-    embed.add_field(name="📦 Public", value="`/pricelist` `/stock`", inline=False)
-    embed.add_field(name="👑 Admin Panel Buttons", value="➕ Add • ➖ Remove • 🔨 Ban • ✅ Unban • 📅 Extend\n🔑 Gen Key • 📋 List • 📢 Announce • 🔄 Transfer\n🔒 HWID • 🔑 Keys • 👥 Resellers • 💰 Prices • 📌 Channels", inline=False)
-    embed.add_field(name="👤 User Panel", value="🔑 Redeem • 📜 Get Script • 👤 Get Role\n🔄 Reset HWID • 📊 Get Stats", inline=False)
+    embed = discord.Embed(
+        title=f"👑 {BRAND_NAME} — Command Guide",
+        color=BRAND_COLOR
+    )
+    embed.description = (
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "**🎛️ SETUP COMMANDS**\n"
+        "`/panel` — Send the user panel\n"
+        "`/adminpanel` — Open admin control panel\n"
+        "`/setscript` — Set the script users receive\n"
+        "`/setrole` — Set the whitelist role\n"
+        "`/setlog` — Set the log channel\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "**📦 PUBLIC COMMANDS**\n"
+        "`/pricelist` — Show prices\n"
+        "`/stock` — Show available keys\n"
+        "`/help` — Show this message\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "**👑 ADMIN PANEL BUTTONS**\n"
+        "➕ Add — Add a user\n"
+        "➖ Remove — Remove a user\n"
+        "🔨 Ban — Ban a user\n"
+        "✅ Unban — Unban a user\n"
+        "📅 +Days — Extend expiry\n"
+        "🔑 Key — Generate a key\n"
+        "📋 List — View all users\n"
+        "📢 DM All — Announce to everyone\n"
+        "🔄 Transfer — Move to new account\n"
+        "🔒 HWID — Reset someone's HWID\n"
+        "🔑 Keys — View all keys\n"
+        "👥 Resell — Add a reseller\n"
+        "💰 Prices — Set price list\n"
+        "📌 Channels — Set channels\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "**👤 USER PANEL BUTTONS**\n"
+        "🔑 Redeem Key — Redeem a key\n"
+        "📜 Get Script — Get your script\n"
+        "👤 Get Role — Claim your role\n"
+        "🔄 Reset HWID — Reset executor lock\n"
+        "📊 Get Stats — View your stats\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )
     embed.set_footer(text=f"{BRAND_NAME} Whitelist System")
     embed.timestamp = datetime.utcnow()
     await interaction.response.send_message(embed=embed, ephemeral=True)
