@@ -621,7 +621,133 @@ class CustomKeyModal(discord.ui.Modal, title="⏱️ Custom Key Duration"):
         except:
             await interaction.response.send_message(embed=make_embed("❌ DM Failed", color_key="error"), ephemeral=True)
 
-class HWIDResetView(discord.ui.View):
+class DMKeyModal(discord.ui.Modal, title="📤 DM Key to User"):
+    discord_username = discord.ui.TextInput(label="Discord Username", placeholder="e.g. yez.v (no @)", required=True)
+    days_input = discord.ui.TextInput(label="Days (empty = permanent)", placeholder="e.g. 30", required=False)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not owner_or_reseller(interaction):
+            await interaction.response.send_message("🚫", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        uname = self.discord_username.value.strip().lower().replace("@", "")
+        member = None
+        for m in interaction.guild.members:
+            if m.name.lower() == uname or m.display_name.lower() == uname:
+                member = m
+                break
+        if not member:
+            await interaction.followup.send(embed=make_embed("❌ User Not Found", f"Could not find **{uname}**", "error"), ephemeral=True)
+            return
+        total_hours = None
+        if self.days_input.value.strip():
+            try:
+                total_hours = int(self.days_input.value.strip()) * 24
+            except:
+                pass
+        key = generate_key("SEMI")
+        expiry = "never"
+        if total_hours:
+            expiry = (datetime.utcnow() + timedelta(hours=total_hours)).strftime("%Y-%m-%d %H:%M")
+        kl, ks, kc = get_github_file(KEY_FILE)
+        update_github_file(KEY_FILE, kc.strip() + f"\n{key} | {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} | false | 1 | {expiry} | never | normal", ks)
+        try:
+            dm = make_embed("🔑 Your Key", color_key="gold")
+            dm.add_field(name="🔑 Key", value=f"`{key}`", inline=False)
+            dm.add_field(name="Expires", value=expiry if expiry != "never" else "Never", inline=True)
+            dm.set_footer(text=f"From {BRAND_NAME} • Single use only!")
+            await member.send(embed=dm)
+            await interaction.followup.send(embed=make_embed("✅ Key Sent!", f"Key sent to **{member.display_name}** via DM.", "success"), ephemeral=True)
+            log = make_embed("📤 Key DMed", f"Key sent to {member.mention}", "info")
+            log.add_field(name="Key", value=f"`{key}`", inline=True)
+            log.add_field(name="Expires", value=expiry if expiry != "never" else "Never", inline=True)
+            await send_log(log)
+        except:
+            await interaction.followup.send(embed=make_embed("❌ DM Failed", f"Could not DM **{member.display_name}**. They may have DMs disabled.", "error"), ephemeral=True)
+
+class QuickSellModal(discord.ui.Modal, title="💨 Quick Sell"):
+    roblox_username = discord.ui.TextInput(label="Roblox Username", placeholder="Their Roblox username", required=True)
+    discord_username = discord.ui.TextInput(label="Discord Username", placeholder="e.g. yez.v (no @)", required=True)
+    days_input = discord.ui.TextInput(label="Days (empty = permanent)", placeholder="e.g. 30", required=False)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not owner_or_reseller(interaction):
+            await interaction.response.send_message("🚫", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        user_id, roblox_name = get_roblox_user_by_username(self.roblox_username.value.strip())
+        if not user_id:
+            await interaction.followup.send(embed=make_embed("❌ Roblox User Not Found", color_key="error"), ephemeral=True)
+            return
+        uname = self.discord_username.value.strip().lower().replace("@", "")
+        member = None
+        for m in interaction.guild.members:
+            if m.name.lower() == uname or m.display_name.lower() == uname:
+                member = m
+                break
+        if not member:
+            await interaction.followup.send(embed=make_embed("❌ Discord User Not Found", f"Could not find **{uname}**", "error"), ephemeral=True)
+            return
+        lines, sha, content = get_github_file(GITHUB_FILE)
+        if user_id in get_ids_only(lines):
+            await interaction.followup.send(embed=make_embed("⚠️ Already Whitelisted", color_key="warning"), ephemeral=True)
+            return
+        expiry = "never"
+        if self.days_input.value.strip():
+            try:
+                expiry = (datetime.utcnow() + timedelta(days=int(self.days_input.value.strip()))).strftime("%Y-%m-%d %H:%M")
+            except:
+                pass
+        date = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        new_entry = f"{user_id} | {date} | {roblox_name} | {member.id} | QuickSell | {expiry} | 0 | none | none"
+        update_github_file(GITHUB_FILE, content.strip() + f"\n{new_entry}", sha)
+        await give_whitelist_role(interaction.guild, str(member.id))
+        avatar = get_roblox_avatar(user_id)
+        try:
+            dm = make_embed(f"✅ Welcome to {BRAND_NAME}!", f"Hey **{roblox_name}**!\n\nYou have been whitelisted!\n\n1️⃣ Go to the panel\n2️⃣ Click **Get Script**\n3️⃣ Run in your executor", "success")
+            dm.add_field(name="Expires", value=get_expiry_display(expiry), inline=True)
+            await member.send(embed=dm)
+        except:
+            pass
+        embed = make_embed("💨 Quick Sell Done!", color_key="success")
+        embed.add_field(name="Roblox", value=roblox_name, inline=True)
+        embed.add_field(name="Discord", value=member.mention, inline=True)
+        embed.add_field(name="Expires", value=get_expiry_display(expiry), inline=True)
+        if avatar:
+            embed.set_thumbnail(url=avatar)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        await send_log(embed)
+
+class SearchUserModal(discord.ui.Modal, title="🔍 Search User"):
+    query = discord.ui.TextInput(label="Roblox or Discord username", placeholder="Enter username to search", required=True)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        q = self.query.value.strip().lower()
+        lines, _, _ = get_github_file(GITHUB_FILE)
+        results = []
+        for line in lines:
+            if line.startswith("--"):
+                continue
+            uid, date, rname, dstr, note, expiry, uses, hwid, sk = parse_entry(line)
+            if (rname and q in rname.lower()) or (dstr and q in dstr.lower()):
+                results.append((uid, date, rname, dstr, note, expiry, uses, hwid))
+        if not results:
+            await interaction.followup.send(embed=make_embed("🔍 No Results", f"No user found matching **{q}**", "warning"), ephemeral=True)
+            return
+        embed = make_embed(f"🔍 Search Results for '{q}'", color_key="info")
+        desc = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        for uid, date, rname, dstr, note, expiry, uses, hwid in results:
+            dmention = f"<@{dstr}>" if dstr and dstr != "none" else "No Discord"
+            status = "⚠️ Expired" if is_expired(expiry) else "✅ Active"
+            desc += (
+                f"**{rname or uid}** — {dmention}\n"
+                f"┗ {status} • Added: {date}\n"
+                f"┗ Expires: {get_expiry_display(expiry)} • HWID: {'🔒' if hwid and hwid != 'none' else '🔓'}\n"
+            )
+        desc += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        embed.description = desc
+        await interaction.followup.send(embed=embed, ephemeral=True)
     def __init__(self, entries):
         super().__init__(timeout=60)
         for i, (uid, rname, dstr) in enumerate(entries[:10]):
@@ -651,20 +777,44 @@ class HWIDResetView(discord.ui.View):
 
 class GenerateKeyView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=120)
+        super().__init__(timeout=None)
 
-    @discord.ui.button(label="♾️ Permanent", style=discord.ButtonStyle.green, row=0)
+    @discord.ui.button(label="♾️ Permanent", style=discord.ButtonStyle.grey, row=0)
     async def key_perm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._generate(interaction, hours=None, label="Permanent")
 
-    @discord.ui.button(label="⏱️ Custom Duration", style=discord.ButtonStyle.blurple, row=0)
+    @discord.ui.button(label="⏱️ Custom", style=discord.ButtonStyle.grey, row=0)
     async def key_custom(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(CustomKeyModal())
         self.stop()
 
-    @discord.ui.button(label="🧪 Trial (1hr)", style=discord.ButtonStyle.grey, row=0)
-    async def key_trial(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._generate(interaction, hours=1, label="Trial 1 Hour", key_type="trial")
+    @discord.ui.button(label="📤 DM Key to User", style=discord.ButtonStyle.grey, row=1)
+    async def dm_key_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(DMKeyModal())
+        self.stop()
+
+    @discord.ui.button(label="💨 Quick Sell", style=discord.ButtonStyle.grey, row=1)
+    async def quick_sell_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(QuickSellModal())
+        self.stop()
+
+    @discord.ui.button(label="📋 Saved Keys", style=discord.ButtonStyle.grey, row=2)
+    async def saved_keys_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not owner_or_reseller(interaction):
+            await interaction.response.send_message("🚫", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        kl, _, _ = get_github_file(KEY_FILE)
+        unused = [(parse_key(l)[0], parse_key(l)[4]) for l in kl if parse_key(l)[2] == "false" and not is_expired(parse_key(l)[4])]
+        if not unused:
+            await interaction.followup.send(embed=make_embed("📋 No Unused Keys", "All keys have been redeemed.", "info"), ephemeral=True)
+            return
+        desc = "**Copy any key below to use later:**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        for k, exp in unused:
+            desc += f"`{k}` — {get_expiry_display(exp)}\n"
+        desc += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        embed = make_embed(f"📋 Unused Keys ({len(unused)})", desc, "gold")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _generate(self, interaction: discord.Interaction, hours, label, key_type="normal"):
         if not owner_or_reseller(interaction):
@@ -676,17 +826,15 @@ class GenerateKeyView(discord.ui.View):
                 await interaction.response.edit_message(embed=make_embed("❌ No Keys Left", color_key="error"), view=None)
                 return
             set_reseller_keys(interaction.user.id, kl - 1)
-        prefix = "TRIAL" if key_type == "trial" else "SEMI"
-        key = generate_key(prefix)
+        key = generate_key("SEMI")
         expiry = "never"
         if hours:
             expiry = (datetime.utcnow() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M")
         kl2, ks, kc = get_github_file(KEY_FILE)
-        update_github_file(KEY_FILE, kc.strip() + f"\n{key} | {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} | false | 1 | {expiry} | never | {key_type}", ks)
+        update_github_file(KEY_FILE, kc.strip() + f"\n{key} | {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} | false | 1 | {expiry} | never | normal", ks)
         try:
             dm = make_embed("🔑 New Key Generated", color_key="gold")
             dm.add_field(name="🔑 Key", value=f"`{key}`", inline=False)
-            dm.add_field(name="Type", value="🧪 Trial" if key_type == "trial" else "✅ Full", inline=True)
             dm.add_field(name="Duration", value=label, inline=True)
             dm.add_field(name="Expires", value=expiry if expiry != "never" else "Never", inline=True)
             dm.set_footer(text="⚠️ Single use only!")
@@ -698,7 +846,7 @@ class GenerateKeyView(discord.ui.View):
 
 class AdminPanelView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=180)
+        super().__init__(timeout=None)
 
     @discord.ui.button(label="➕ Add", style=discord.ButtonStyle.grey, row=0)
     async def add_btn(self, i: discord.Interaction, b: discord.ui.Button):
@@ -715,12 +863,12 @@ class AdminPanelView(discord.ui.View):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(BanUserModal())
 
-    @discord.ui.button(label="✅ Unban", style=discord.ButtonStyle.grey, row=0)
+    @discord.ui.button(label="✅ Unban", style=discord.ButtonStyle.grey, row=1)
     async def unban_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(UnbanUserModal())
 
-    @discord.ui.button(label="📅 +Days", style=discord.ButtonStyle.grey, row=0)
+    @discord.ui.button(label="📅 +Days", style=discord.ButtonStyle.grey, row=1)
     async def extend_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(ExtendExpiryModal())
@@ -728,9 +876,9 @@ class AdminPanelView(discord.ui.View):
     @discord.ui.button(label="🔑 Key", style=discord.ButtonStyle.grey, row=1)
     async def genkey_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_or_reseller(i): await i.response.send_message("🚫", ephemeral=True); return
-        await i.response.send_message(embed=make_embed("🔑 Generate Key", "Select key type:", "gold"), view=GenerateKeyView(), ephemeral=True)
+        await i.response.send_message(embed=make_embed("🔑 Generate Key", "Select an option:", "gold"), view=GenerateKeyView(), ephemeral=True)
 
-    @discord.ui.button(label="📋 List", style=discord.ButtonStyle.grey, row=1)
+    @discord.ui.button(label="📋 List", style=discord.ButtonStyle.grey, row=2)
     async def list_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.defer(ephemeral=True)
@@ -748,23 +896,56 @@ class AdminPanelView(discord.ui.View):
                 name = rname if rname else uid
                 dmention = f"<@{dstr}>" if dstr and dstr != "none" else "No Discord"
                 status = "⚠️" if is_expired(expiry) else "✅"
-                embed.description += f"{status} **{name}** — {dmention}\n"
+                note_text = f" — _{note}_" if note and note != "none" else ""
+                embed.description += f"{status} **{name}** — {dmention}{note_text}\n"
         embed.description += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         embed.add_field(name="✅", value=str(len(entries)), inline=True)
         embed.add_field(name="🔨", value=str(len(ban_entries)), inline=True)
         await i.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="📢 DM All", style=discord.ButtonStyle.grey, row=1)
+    @discord.ui.button(label="🔍 Search", style=discord.ButtonStyle.grey, row=2)
+    async def search_btn(self, i: discord.Interaction, b: discord.ui.Button):
+        if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
+        await i.response.send_modal(SearchUserModal())
+
+    @discord.ui.button(label="🚫 Banned", style=discord.ButtonStyle.grey, row=2)
+    async def banlist_btn(self, i: discord.Interaction, b: discord.ui.Button):
+        if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
+        await i.response.defer(ephemeral=True)
+        ban_lines, _, _ = get_github_file(BAN_FILE)
+        entries = [l for l in ban_lines if not l.startswith("--")]
+        embed = make_embed("🚫 Ban List", color_key="ban")
+        if not entries:
+            embed.description = "No banned users."
+        else:
+            desc = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            for line in entries:
+                parts = [p.strip() for p in line.split("|")]
+                rname = parts[2] if len(parts) > 2 else parts[0]
+                reason = parts[3] if len(parts) > 3 else "No reason"
+                desc += f"🔨 **{rname}** — {reason}\n"
+            desc += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            embed.description = desc
+        embed.add_field(name="Total", value=str(len(entries)), inline=True)
+        await i.followup.send(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="📢 DM All", style=discord.ButtonStyle.grey, row=3)
     async def announce_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(AnnounceModal())
 
-    @discord.ui.button(label="🔄 Transfer", style=discord.ButtonStyle.grey, row=1)
-    async def transfer_btn(self, i: discord.Interaction, b: discord.ui.Button):
+    @discord.ui.button(label="🔒 HWID", style=discord.ButtonStyle.grey, row=3)
+    async def hwid_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
-        await i.response.send_modal(TransferModal())
+        await i.response.defer(ephemeral=True)
+        lines, _, _ = get_github_file(GITHUB_FILE)
+        entries = [(parse_entry(l)[0], parse_entry(l)[2] or parse_entry(l)[0], parse_entry(l)[3] or "none") for l in lines if not l.startswith("--") and parse_entry(l)[7] and parse_entry(l)[7] != "none"]
+        if not entries:
+            await i.followup.send(embed=make_embed("🔒 No HWID locked users", color_key="info"), ephemeral=True)
+            return
+        await i.followup.send(embed=make_embed("🔒 HWID Reset Panel", "Tap a user to reset.", "gold"), view=HWIDResetView(entries), ephemeral=True)
 
-    @discord.ui.button(label="🔑 Keys", style=discord.ButtonStyle.grey, row=1)
+    @discord.ui.button(label="🔑 Keys", style=discord.ButtonStyle.grey, row=3)
     async def keylist_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.defer(ephemeral=True)
@@ -777,34 +958,23 @@ class AdminPanelView(discord.ui.View):
             k, date, used, mu, expiry, days, kt = parse_key(line)
             st = "✅" if used == "false" else "❌"
             if is_expired(expiry): st = "⚠️"
-            desc += f"{st} `{k}`{'🧪' if kt == 'trial' else ''} — {get_expiry_display(expiry)}\n"
+            desc += f"{st} `{k}` — {get_expiry_display(expiry)}\n"
         desc += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         embed = make_embed("🔑 All Keys", desc, "gold")
         embed.add_field(name="Total", value=str(len(kl)), inline=True)
         await i.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="🔒 HWID", style=discord.ButtonStyle.grey, row=2)
-    async def hwid_btn(self, i: discord.Interaction, b: discord.ui.Button):
-        if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
-        await i.response.defer(ephemeral=True)
-        lines, _, _ = get_github_file(GITHUB_FILE)
-        entries = [(parse_entry(l)[0], parse_entry(l)[2] or parse_entry(l)[0], parse_entry(l)[3] or "none") for l in lines if not l.startswith("--") and parse_entry(l)[7] and parse_entry(l)[7] != "none"]
-        if not entries:
-            await i.followup.send(embed=make_embed("🔒 No HWID locked users", color_key="info"), ephemeral=True)
-            return
-        await i.followup.send(embed=make_embed("🔒 HWID Reset Panel", "Tap a user to reset.", "gold"), view=HWIDResetView(entries), ephemeral=True)
-
-    @discord.ui.button(label="👥 Resell", style=discord.ButtonStyle.grey, row=2)
+    @discord.ui.button(label="👥 Resell", style=discord.ButtonStyle.grey, row=4)
     async def resellers_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(ResellerModal())
 
-    @discord.ui.button(label="💰 Prices", style=discord.ButtonStyle.grey, row=2)
+    @discord.ui.button(label="💰 Prices", style=discord.ButtonStyle.grey, row=4)
     async def prices_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(PriceListModal())
 
-    @discord.ui.button(label="📌 Channels", style=discord.ButtonStyle.grey, row=2)
+    @discord.ui.button(label="📌 Channels", style=discord.ButtonStyle.grey, row=4)
     async def channels_btn(self, i: discord.Interaction, b: discord.ui.Button):
         if not owner_only(i): await i.response.send_message("🚫", ephemeral=True); return
         await i.response.send_modal(SetChannelModal())
@@ -883,9 +1053,9 @@ class PanelView(discord.ui.View):
         nxt = get_hwid_reset_time(interaction.user.id)
         if nxt:
             tl = nxt - datetime.utcnow()
-            h = int(tl.total_seconds() // 3600)
-            m = int((tl.total_seconds() % 3600) // 60)
-            await interaction.response.send_message(embed=make_embed("⏳ HWID Cooldown", f"Reset available in **{h}h {m}m**.", "warning"), ephemeral=True)
+            days_left = tl.days
+            hours_left = tl.seconds // 3600
+            await interaction.response.send_message(embed=make_embed("⏳ HWID Cooldown", f"Reset available in **{days_left}d {hours_left}h**.", "warning"), ephemeral=True)
             return
         lines, sha, content = get_github_file(GITHUB_FILE)
         new_lines = []
@@ -902,7 +1072,7 @@ class PanelView(discord.ui.View):
             return
         update_github_file(GITHUB_FILE, "\n".join(new_lines), sha)
         set_hwid_reset_time(interaction.user.id)
-        await interaction.response.send_message(embed=make_embed("🔄 HWID Reset", "Done! Next reset in **3 days**.", "success"), ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("🔄 HWID Reset", "Done! Next reset available in **3 days**.", "success"), ephemeral=True)
         await send_log(make_embed("🔄 HWID Reset", f"{interaction.user.mention} reset HWID.", "warning"))
 
     @discord.ui.button(label="📊 Get Stats", style=discord.ButtonStyle.grey, custom_id="panel_stats", row=1)
@@ -913,20 +1083,27 @@ class PanelView(discord.ui.View):
             if dstr and dstr == str(interaction.user.id):
                 expired = is_expired(expiry)
                 nxt = get_hwid_reset_time(interaction.user.id)
-                embed = make_embed("📊 Your Stats", color_key="warning" if expired else "success")
-                embed.add_field(name="Roblox", value=rname or uid, inline=True)
-                embed.add_field(name="Status", value="⚠️ Expired" if expired else "✅ Active", inline=True)
-                embed.add_field(name="Added", value=date, inline=True)
-                embed.add_field(name="Expires", value=get_expiry_display(expiry), inline=True)
-                embed.add_field(name="HWID", value="🔒 Locked" if hwid and hwid != "none" else "🔓 Unlocked", inline=True)
                 if nxt:
                     tl = nxt - datetime.utcnow()
-                    embed.add_field(name="HWID Reset", value=f"In {int(tl.total_seconds()//3600)}h", inline=True)
+                    days_left = tl.days
+                    hours_left = tl.seconds // 3600
+                    hwid_reset_text = f"In {days_left}d {hours_left}h"
                 else:
-                    embed.add_field(name="HWID Reset", value="Available ✅", inline=True)
-                av = get_roblox_avatar(uid)
-                if av:
-                    embed.set_image(url=av)
+                    hwid_reset_text = "Available ✅"
+                status = "⚠️ Expired" if expired else "✅ Active"
+                hwid_text = "🔒 Locked" if hwid and hwid != "none" else "🔓 Unlocked"
+                embed = discord.Embed(color=COLORS["warning"] if expired else COLORS["success"])
+                embed.description = (
+                    f"**{rname or uid}**\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"**Status:** {status}\n"
+                    f"**Expires:** {get_expiry_display(expiry)}\n"
+                    f"**HWID:** {hwid_text}\n"
+                    f"**HWID Reset:** {hwid_reset_text}\n"
+                    f"**Added:** {date}"
+                )
+                embed.set_footer(text=f"{BRAND_NAME} Whitelist System")
+                embed.timestamp = datetime.utcnow()
                 await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
         await interaction.response.send_message(embed=make_embed("❌ Not Whitelisted", color_key="error"), ephemeral=True)
@@ -1042,7 +1219,7 @@ async def panel(interaction: discord.Interaction):
         await interaction.response.send_message(embed=make_embed("🚫 Access Denied", color_key="error"), ephemeral=True)
         return
     embed = discord.Embed(title=BRAND_NAME, description=(f"This control panel is for the project: **{BRAND_NAME}**\nIf you're a buyer, click on the buttons below to redeem your key, get the script or get your role."), color=BRAND_COLOR)
-    embed.set_footer(text=f"Sent by {interaction.user.name} • {datetime.utcnow().strftime('%m/%d/%Y %I:%M %p')}")
+    embed.set_footer(text=f"Sent by {interaction.user.name}")
     await interaction.response.send_message(embed=embed, view=PanelView())
 
 @tree.command(name="adminpanel", description="Open the admin control panel")
@@ -1167,3 +1344,4 @@ async def help_cmd(interaction: discord.Interaction):
 
 print("Starting bot...")
 client.run(TOKEN)
+
