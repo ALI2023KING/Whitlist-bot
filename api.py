@@ -1529,10 +1529,14 @@ async def trialevent_cmd(interaction: discord.Interaction, hours: int = 0, days:
         await interaction.response.send_message(embed=make_embed("❌ Set a time", "Enter hours or days. e.g. hours:2 or days:1", "error"), ephemeral=True)
         return
     await interaction.response.defer(ephemeral=False)
+    import time
     total_hours = (days * 24) + hours
-    expiry = (datetime.utcnow() + timedelta(hours=total_hours)).strftime("%Y-%m-%d %H:%M")
+    expiry_dt = datetime.utcnow() + timedelta(hours=total_hours)
+    # Write as unix timestamp so Roblox os.time() can compare directly
+    expiry_ts = str(int(time.mktime(expiry_dt.timetuple())))
+    expiry_display = expiry_dt.strftime("%Y-%m-%d %H:%M UTC")
     _, sha, _ = get_github_file(TRIAL_FILE)
-    update_github_file(TRIAL_FILE, expiry, sha)
+    update_github_file(TRIAL_FILE, expiry_ts, sha)
     label = ""
     if days > 0: label += f"{days}d "
     if hours > 0: label += f"{hours}h"
@@ -1544,13 +1548,13 @@ async def trialevent_cmd(interaction: discord.Interaction, hours: int = 0, days:
         f"Just run the script in your executor — no key needed!\n\n"
         f"```\nloadstring(game:HttpGet(\"https://pastebin.com/raw/SwJpvGDt\"))()\n```\n\n"
         f"⏰ **Trial ends in:** {label}\n"
-        f"**Expires at:** {expiry} UTC\n\n"
+        f"**Expires at:** {expiry_display}\n\n"
         f"After the trial ends you will need to purchase access."
     )
     embed.set_footer(text=f"{BRAND_NAME} • Trial Event")
     embed.timestamp = datetime.utcnow()
     await interaction.followup.send(embed=embed)
-    log = make_embed("🎉 Trial Event Started", f"Public trial started for **{label}**\nExpires: {expiry}", "warning")
+    log = make_embed("🎉 Trial Event Started", f"Public trial started for **{label}**\nExpires: {expiry_display}", "warning")
     await send_log(log)
 
 @tree.command(name="endtrial", description="End the public trial event early (owner only)")
